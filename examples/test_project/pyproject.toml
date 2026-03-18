@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "test-project"
+version = "0.1.0"
+description = "Example project demonstrating django-tasks-db-api"
+requires-python = ">=3.10"
+dependencies = [
+    "Django>=4.2",
+    "djangorestframework>=3.14",
+    "django-tasks-db>=0.12.0",
+    "django-tasks-db-api @ file:///${PROJECT_ROOT}/../..",
+]
+
+[tool.setuptools.packages.find]
+include = ["test_project*"]
