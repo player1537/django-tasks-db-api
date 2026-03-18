@@ -18,14 +18,16 @@ from .serializers import (
 
 
 class TaskClaimView(APIView):
-    """POST /tasks/ready/ - Claim the next ready task for a worker."""
+    """POST /tasks/ready/ or /queue/<queue_name>/tasks/ready/ - Claim the next ready task for a worker."""
 
-    def post(self, request):
+    def post(self, request, queue_name=None):
         serializer = TaskClaimRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         worker_id = serializer.validated_data["worker_id"]
-        queue_name = serializer.validated_data.get("queue_name")
+        # Use queue_name from URL path if provided, otherwise use from request body
+        if queue_name is None:
+            queue_name = serializer.validated_data.get("queue_name")
         backend_name = serializer.validated_data.get("backend_name", "default")
 
         tasks = DBTaskResult.objects.ready().filter(backend_name=backend_name)

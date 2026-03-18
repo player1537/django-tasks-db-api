@@ -16,8 +16,12 @@ This decouples workers from the database — workers only need HTTP access to th
 
 ## Installation
 
+### Server Installation
+
+For a full server setup with Django and djangorestframework:
+
 ```
-pip install django-tasks-db-api
+pip install "django-tasks-db-api[server]"
 ```
 
 Add to `INSTALLED_APPS`:
@@ -47,6 +51,16 @@ Run migrations (for the `TaskLease` model):
 manage.py migrate django_tasks_db_api
 ```
 
+### Client-Only Installation
+
+If you only need the `APIWorkerClient` class for a standalone worker (no Django server):
+
+```
+pip install django-tasks-db-api
+```
+
+This installs only the minimal dependencies (`requests`). The client is a plain Python class with no Django dependencies.
+
 ## API Endpoints
 
 ### `POST /tasks/ready/` — Claim a task
@@ -65,6 +79,22 @@ Atomically claims the highest-priority ready task and returns it. The task is ma
 ```
 
 `worker_id` is required. All other fields are optional.
+
+### `POST /queue/<queue_name>/tasks/ready/` — Claim a task from a specific queue
+
+Same as above, but the queue name is specified in the URL path instead of the request body. Useful when workers are dedicated to a single queue.
+
+**Request:**
+
+```json
+{
+    "worker_id": "my-worker-1",
+    "lease_seconds": 300,
+    "backend_name": "default"
+}
+```
+
+`worker_id` is required. `queue_name` is taken from the URL path.
 
 **Response (200):**
 
