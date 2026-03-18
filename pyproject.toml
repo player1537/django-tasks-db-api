@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-tasks-db-api"
+version = "0.1.0"
+description = "Django Rest Framework API for django-tasks-db"
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
+dependencies = [
+    "Django>=4.2",
+    "djangorestframework>=3.14",
+    "django-tasks-db>=0.12.0",
+    "requests>=2.28",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-django",
+    "coverage",
+]
+
+[project.urls]
+Homepage = "https://github.com/player1537-playground/claude-playground"
+
+[tool.setuptools.packages.find]
+include = ["django_tasks_db_api*"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "django_tasks_db_api.tests.settings"
+pythonpath = ["."]
