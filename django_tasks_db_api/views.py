@@ -1,3 +1,5 @@
+import datetime
+
 from django.db import transaction
 from django.utils import timezone
 from django_tasks.base import TaskResultStatus
@@ -6,6 +8,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .models import TaskLease
 from .serializers import (
     DBTaskResultSerializer,
     TaskClaimRequestSerializer,
@@ -28,6 +31,8 @@ class TaskClaimView(APIView):
         if queue_name:
             tasks = tasks.filter(queue_name=queue_name)
 
+        lease_seconds = serializer.validated_data["lease_seconds"]
+
         with transaction.atomic(using=tasks.db):
             try:
                 task_result = tasks.select_for_update(skip_locked=True).first()
@@ -36,6 +41,10 @@ class TaskClaimView(APIView):
                 task_result = tasks.first()
             if task_result is not None:
                 task_result.claim(worker_id)
+                TaskLease.objects.create(
+                    task_result=task_result,
+                    expires_at=timezone.now() + datetime.timedelta(seconds=lease_seconds),
+                )
 
         if task_result is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
