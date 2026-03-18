@@ -42,6 +42,7 @@ class TestAPIWorkerClient(TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:8000/tasks/ready/",
             json={"worker_id": "w1", "lease_seconds": 300},
+            headers={},
             timeout=30,
         )
 
@@ -80,6 +81,7 @@ class TestAPIWorkerClient(TestCase):
                 "status": "SUCCESSFUL",
                 "return_value": "Hello, hello",
             },
+            headers={},
             timeout=30,
         )
 
@@ -107,6 +109,7 @@ class TestAPIWorkerClient(TestCase):
                 "exception_class_path": "builtins.ValueError",
                 "traceback": "Traceback: ...",
             },
+            headers={},
             timeout=30,
         )
 

@@ -14,14 +14,22 @@ logger = logging.getLogger("django_tasks_db_api")
 class APIWorkerClient:
     """HTTP client that communicates with the django_tasks_db_api REST endpoints."""
 
-    def __init__(self, *, base_url: str, worker_id: str):
+    def __init__(
+        self, *, base_url: str, worker_id: str, headers: dict[str, str] | None = None
+    ):
         self.base_url = base_url.rstrip("/")
         self.worker_id = worker_id
+        self.headers = headers or {}
+
+    def get_headers(self) -> dict[str, str]:
+        """Return headers for the next request. Override for dynamic auth (e.g. JWT refresh)."""
+        return dict(self.headers)
 
     def claim_task(self, *, lease_seconds: int = 300) -> dict | None:
         response = requests.post(
             f"{self.base_url}/tasks/ready/",
             json={"worker_id": self.worker_id, "lease_seconds": lease_seconds},
+            headers=self.get_headers(),
             timeout=30,
         )
         if response.status_code == 204:
@@ -48,6 +56,7 @@ class APIWorkerClient:
         response = requests.post(
             f"{self.base_url}/tasks/{task_id}/result/",
             json=payload,
+            headers=self.get_headers(),
             timeout=30,
         )
         response.raise_for_status()

@@ -48,6 +48,12 @@ class Command(BaseCommand):
             default=None,
             help="Maximum number of tasks to process before exiting",
         )
+        parser.add_argument(
+            "--auth-token",
+            type=str,
+            default=None,
+            help="Bearer token for API authentication",
+        )
 
     def configure_logging(self, verbosity: int) -> None:
         if verbosity == 0:
@@ -63,9 +69,14 @@ class Command(BaseCommand):
     def handle(self, *, verbosity: int, **options) -> None:
         self.configure_logging(verbosity)
 
+        headers = {}
+        if options["auth_token"]:
+            headers["Authorization"] = f"Bearer {options['auth_token']}"
+
         client = APIWorkerClient(
             base_url=options["api_url"],
             worker_id=options["worker_id"],
+            headers=headers,
         )
 
         worker = APIWorker(
