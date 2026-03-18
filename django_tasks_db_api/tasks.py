@@ -1,5 +1,6 @@
 import logging
 
+from django.db import transaction
 from django_tasks import task
 from django_tasks.base import TaskResultStatus
 
@@ -19,24 +20,24 @@ def reset_single_task_lease(task_id: str) -> None:
 
     from .models import TaskLease
 
-    try:
-        db_task = DBTaskResult.objects.get(pk=task_id)
-    except DBTaskResult.DoesNotExist:
-        logger.warning("Task %s no longer exists, skipping lease reset.", task_id)
-        return
+    with transaction.atomic():
+        try:
+            db_task = DBTaskResult.objects.select_for_update().get(pk=task_id)
+        except DBTaskResult.DoesNotExist:
+            logger.warning("Task %s no longer exists, skipping lease reset.", task_id)
+            return
 
-    if db_task.status != TaskResultStatus.RUNNING:
-        logger.info(
-            "Task %s is %s (not RUNNING), skipping lease reset.",
-            task_id,
-            db_task.status,
-        )
-        # Clean up the lease if it still exists
+        if db_task.status != TaskResultStatus.RUNNING:
+            logger.info(
+                "Task %s is %s (not RUNNING), skipping lease reset.",
+                task_id,
+                db_task.status,
+            )
+            TaskLease.objects.filter(task_result_id=task_id).delete()
+            return
+
+        logger.info("Resetting expired lease for task %s", task_id)
+        db_task.status = TaskResultStatus.READY
+        db_task.started_at = None
+        db_task.save(update_fields=["status", "started_at"])
         TaskLease.objects.filter(task_result_id=task_id).delete()
-        return
-
-    logger.info("Resetting expired lease for task %s", task_id)
-    db_task.status = TaskResultStatus.READY
-    db_task.started_at = None
-    db_task.save(update_fields=["status", "started_at"])
-    TaskLease.objects.filter(task_result_id=task_id).delete()

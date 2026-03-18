@@ -70,50 +70,50 @@ class TaskResultView(APIView):
     """POST /tasks/<uuid>/result/ - Submit task completion result."""
 
     def post(self, request, pk):
-        try:
-            task_result = DBTaskResult.objects.get(pk=pk)
-        except DBTaskResult.DoesNotExist:
-            return Response(
-                {"detail": "Task not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if task_result.status != TaskResultStatus.RUNNING:
-            return Response(
-                {"detail": "Task is not in RUNNING state."},
-                status=status.HTTP_409_CONFLICT,
-            )
-
         serializer = TaskResultSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         submitted_status = serializer.validated_data["status"]
-        now = timezone.now()
 
-        if submitted_status == "SUCCESSFUL":
-            task_result.status = TaskResultStatus.SUCCESSFUL
-            task_result.finished_at = now
-            task_result.return_value = serializer.validated_data.get("return_value")
-            task_result.exception_class_path = ""
-            task_result.traceback = ""
+        with transaction.atomic():
+            try:
+                task_result = DBTaskResult.objects.select_for_update().get(pk=pk)
+            except DBTaskResult.DoesNotExist:
+                return Response(
+                    {"detail": "Task not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if task_result.status != TaskResultStatus.RUNNING:
+                return Response(
+                    {"detail": "Task is not in RUNNING state."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            now = timezone.now()
+
+            if submitted_status == "SUCCESSFUL":
+                task_result.status = TaskResultStatus.SUCCESSFUL
+                task_result.finished_at = now
+                task_result.return_value = serializer.validated_data.get("return_value")
+                task_result.exception_class_path = ""
+                task_result.traceback = ""
+            else:
+                task_result.status = TaskResultStatus.FAILED
+                task_result.finished_at = now
+                task_result.exception_class_path = serializer.validated_data.get("exception_class_path", "")
+                task_result.traceback = serializer.validated_data.get("traceback", "")
+                task_result.return_value = None
+
             task_result.save(
                 update_fields=[
                     "status", "return_value", "finished_at",
                     "exception_class_path", "traceback",
                 ]
             )
-        else:
-            task_result.status = TaskResultStatus.FAILED
-            task_result.finished_at = now
-            task_result.exception_class_path = serializer.validated_data.get("exception_class_path", "")
-            task_result.traceback = serializer.validated_data.get("traceback", "")
-            task_result.return_value = None
-            task_result.save(
-                update_fields=[
-                    "status", "return_value", "finished_at",
-                    "exception_class_path", "traceback",
-                ]
-            )
+
+            # Clean up the lease now that the task is finished
+            TaskLease.objects.filter(task_result_id=pk).delete()
 
         return Response(
             DBTaskResultSerializer(task_result).data,
