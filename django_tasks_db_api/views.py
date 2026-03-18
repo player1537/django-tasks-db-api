@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .conf import get_setting
 from .models import TaskLease
 from .serializers import (
     DBTaskResultSerializer,
@@ -41,10 +42,20 @@ class TaskClaimView(APIView):
                 task_result = tasks.first()
             if task_result is not None:
                 task_result.claim(worker_id)
+                expires_at = timezone.now() + datetime.timedelta(seconds=lease_seconds)
                 TaskLease.objects.create(
                     task_result=task_result,
-                    expires_at=timezone.now() + datetime.timedelta(seconds=lease_seconds),
+                    expires_at=expires_at,
                 )
+
+        if task_result is not None:
+            from .tasks import reset_single_task_lease
+
+            reset_single_task_lease.using(
+                backend=get_setting("LEASE_RESET_BACKEND"),
+                queue_name=get_setting("LEASE_RESET_QUEUE"),
+                run_after=expires_at,
+            ).enqueue(str(task_result.id))
 
         if task_result is None:
             return Response(status=status.HTTP_204_NO_CONTENT)

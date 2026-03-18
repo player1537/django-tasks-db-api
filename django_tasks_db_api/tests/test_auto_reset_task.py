@@ -154,10 +154,18 @@ class TestAutoResetEnqueuedOnClaim(TestCase):
         )
         self.assertEqual(reset_tasks.count(), 0)
 
-    @override_settings(DJANGO_TASKS_DB_API={
-        "LEASE_RESET_BACKEND": "default",
-        "LEASE_RESET_QUEUE": "maintenance",
-    })
+    @override_settings(
+        DJANGO_TASKS_DB_API={
+            "LEASE_RESET_BACKEND": "default",
+            "LEASE_RESET_QUEUE": "maintenance",
+        },
+        TASKS={
+            "default": {
+                "BACKEND": "django_tasks_db.DatabaseBackend",
+                "QUEUES": ["default", "maintenance"],
+            },
+        },
+    )
     def test_reset_task_uses_configured_queue(self):
         """The enqueued reset task should use the configured queue."""
         task = DBTaskResult.objects.create(
