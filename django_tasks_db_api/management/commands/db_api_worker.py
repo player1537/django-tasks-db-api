@@ -54,6 +54,12 @@ class Command(BaseCommand):
             default=None,
             help="Bearer token for API authentication",
         )
+        parser.add_argument(
+            "--queue-name",
+            type=str,
+            default=None,
+            help="Queue name to claim tasks from (optional, claims from any queue if not specified)",
+        )
 
     def configure_logging(self, verbosity: int) -> None:
         if verbosity == 0:
@@ -85,6 +91,7 @@ class Command(BaseCommand):
             lease_seconds=options["lease_seconds"],
             interval=options["interval"],
             max_tasks=options["max_tasks"],
+            queue_name=options["queue_name"],
         )
 
         worker.configure_signals()

@@ -25,9 +25,14 @@ class APIWorkerClient:
         """Return headers for the next request. Override for dynamic auth (e.g. JWT refresh)."""
         return dict(self.headers)
 
-    def claim_task(self, *, lease_seconds: int = 300) -> dict | None:
+    def claim_task(self, *, queue_name: str | None = None, lease_seconds: int = 300) -> dict | None:
+        if queue_name:
+            url = f"{self.base_url}/queue/{queue_name}/tasks/ready/"
+        else:
+            url = f"{self.base_url}/tasks/ready/"
+
         response = requests.post(
-            f"{self.base_url}/tasks/ready/",
+            url,
             json={"worker_id": self.worker_id, "lease_seconds": lease_seconds},
             headers=self.get_headers(),
             timeout=30,
@@ -73,12 +78,14 @@ class APIWorker:
         lease_seconds: int = 300,
         interval: float = 1.0,
         max_tasks: int | None = None,
+        queue_name: str | None = None,
     ):
         self.client = client
         self.batch = batch
         self.lease_seconds = lease_seconds
         self.interval = interval
         self.max_tasks = max_tasks
+        self.queue_name = queue_name
         self.running = True
         self._run_tasks = 0
 
@@ -102,7 +109,10 @@ class APIWorker:
         logger.info("Starting API worker")
 
         while self.running:
-            task_data = self.client.claim_task(lease_seconds=self.lease_seconds)
+            task_data = self.client.claim_task(
+                queue_name=self.queue_name,
+                lease_seconds=self.lease_seconds,
+            )
 
             if task_data is None:
                 if self.batch:
