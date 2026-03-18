@@ -1,8 +1,18 @@
+# WARNING
+
+As of the current (2026-03-18) commit (`5229a64`), everything in this project is entirely AI-generated, with the exception of this section of the README.
+
+This solves a specific problem I have and is intended to be reusable. The kind of work that this package is doing is really not that interesting, I just needed it to exist so that I could build a part of my current project. I figured this would be useful enough that others could also use it.
+
+I don't have any current plans to push this to PyPI. Instead, I think the best way to install it is to pip install from the git repository directly, or else to add it as a submodule.
+
+
 # django-tasks-db-api
 
 A Django Rest Framework API on top of [django-tasks-db](https://github.com/RealOrangeOne/django-tasks-db). Its primary purpose is to enable a `manage.py db_api_worker` command that polls the API for new jobs, claims them for a fixed amount of time, runs the task, and sends the result back via the API.
 
 This decouples workers from the database — workers only need HTTP access to the API server, not direct database credentials.
+
 
 ## Installation
 
