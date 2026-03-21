@@ -42,6 +42,7 @@ class TestAPIWorkerClient(TestCase):
         mock_post.assert_called_once_with(
             "http://localhost:8000/tasks/ready/",
             json={"worker_id": "w1", "lease_seconds": 300},
+            params={},
             headers={},
             timeout=30,
         )

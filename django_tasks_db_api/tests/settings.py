@@ -11,6 +11,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "rest_framework",
+    "django_filters",
     "django_tasks_db",
     "django_tasks_db_api",
 ]

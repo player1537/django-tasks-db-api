@@ -2,37 +2,53 @@ import datetime
 
 from django.db import transaction
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
 from django_tasks.base import TaskResultStatus
 from django_tasks_db.models import DBTaskResult
 from rest_framework import status
+from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .conf import get_setting
+from .filters import TaskClaimFilter
 from .models import TaskLease
 from .serializers import (
     DBTaskResultSerializer,
     TaskClaimRequestSerializer,
+    TaskEnqueueSerializer,
     TaskResultSubmitSerializer,
 )
 
 
 class TaskClaimView(APIView):
-    """POST /tasks/ready/ or /queue/<queue_name>/tasks/ready/ - Claim the next ready task for a worker."""
+    """POST /tasks/ready/ - Claim the next ready task for a worker.
 
-    def post(self, request, queue_name=None):
+    Supports query string filtering via django-filters:
+        ?queue_name=default
+        ?queue_name__in=foo,bar,baz
+    """
+
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = TaskClaimFilter
+
+    def get_queryset(self):
+        return DBTaskResult.objects.ready()
+
+    def filter_queryset(self, queryset):
+        for backend in self.filter_backends:
+            queryset = backend().filter_queryset(self.request, queryset, self)
+        return queryset
+
+    def post(self, request):
         serializer = TaskClaimRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         worker_id = serializer.validated_data["worker_id"]
-        # Use queue_name from URL path if provided, otherwise use from request body
-        if queue_name is None:
-            queue_name = serializer.validated_data.get("queue_name")
         backend_name = serializer.validated_data.get("backend_name", "default")
 
-        tasks = DBTaskResult.objects.ready().filter(backend_name=backend_name)
-        if queue_name:
-            tasks = tasks.filter(queue_name=queue_name)
+        tasks = self.get_queryset().filter(backend_name=backend_name)
+        tasks = self.filter_queryset(tasks)
 
         lease_seconds = serializer.validated_data["lease_seconds"]
 
@@ -138,4 +154,26 @@ class TaskDetailView(APIView):
         return Response(
             DBTaskResultSerializer(task_result).data,
             status=status.HTTP_200_OK,
+        )
+
+
+class TaskEnqueueView(APIView):
+    """POST /tasks/ - Enqueue a new task."""
+
+    def post(self, request):
+        serializer = TaskEnqueueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        task_result = DBTaskResult.objects.create(
+            task_path=serializer.validated_data["task_path"],
+            args_kwargs=serializer.validated_data.get("args_kwargs", {"args": [], "kwargs": {}}),
+            priority=serializer.validated_data.get("priority", 0),
+            queue_name=serializer.validated_data.get("queue_name", "default"),
+            backend_name=serializer.validated_data.get("backend_name", "default"),
+            run_after=serializer.validated_data.get("run_after"),
+        )
+
+        return Response(
+            DBTaskResultSerializer(task_result).data,
+            status=status.HTTP_201_CREATED,
         )

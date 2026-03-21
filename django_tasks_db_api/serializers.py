@@ -18,7 +18,6 @@ class DBTaskResultSerializer(serializers.Serializer):
 class TaskClaimRequestSerializer(serializers.Serializer):
     worker_id = serializers.CharField(required=True, max_length=64)
     lease_seconds = serializers.IntegerField(required=False, default=300)
-    queue_name = serializers.CharField(required=False, default=None, allow_null=True)
     backend_name = serializers.CharField(required=False, default="default")
 
 
@@ -27,3 +26,12 @@ class TaskResultSubmitSerializer(serializers.Serializer):
     return_value = serializers.JSONField(required=False, default=None)
     exception_class_path = serializers.CharField(required=False, default="")
     traceback = serializers.CharField(required=False, default="")
+
+
+class TaskEnqueueSerializer(serializers.Serializer):
+    task_path = serializers.CharField(required=True)
+    args_kwargs = serializers.JSONField(required=False, default=dict)
+    priority = serializers.IntegerField(required=False, default=0)
+    queue_name = serializers.CharField(required=False, default="default")
+    backend_name = serializers.CharField(required=False, default="default")
+    run_after = serializers.DateTimeField(required=False, default=None, allow_null=True)

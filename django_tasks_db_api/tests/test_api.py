@@ -63,15 +63,48 @@ class TestTaskClaimView(TestCase):
         )
         self.assertEqual(response.status_code, 204)
 
-    def test_claim_respects_queue_filter(self):
-        """Should only claim tasks from the specified queue."""
+    def test_claim_respects_queue_filter_via_query_string(self):
+        """Should only claim tasks from the specified queue via ?queue_name=."""
         self._create_ready_task(queue_name="other-queue")
         response = self.client.post(
-            "/tasks/ready/",
-            {"worker_id": self.worker_id, "lease_seconds": 300, "queue_name": "default"},
+            "/tasks/ready/?queue_name=default",
+            {"worker_id": self.worker_id, "lease_seconds": 300},
             format="json",
         )
         self.assertEqual(response.status_code, 204)
+
+    def test_claim_queue_filter_in(self):
+        """Should support ?queue_name__in=foo,bar to filter multiple queues."""
+        task_foo = self._create_ready_task(queue_name="foo")
+        self._create_ready_task(queue_name="baz")
+        response = self.client.post(
+            "/tasks/ready/?queue_name__in=foo,bar",
+            {"worker_id": self.worker_id, "lease_seconds": 300},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], str(task_foo.id))
+
+    def test_claim_queue_filter_in_excludes_non_matching(self):
+        """?queue_name__in should exclude tasks not in the list."""
+        self._create_ready_task(queue_name="baz")
+        response = self.client.post(
+            "/tasks/ready/?queue_name__in=foo,bar",
+            {"worker_id": self.worker_id, "lease_seconds": 300},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 204)
+
+    def test_claim_without_queue_filter_returns_any(self):
+        """Without ?queue_name, should claim from any queue."""
+        task = self._create_ready_task(queue_name="any-queue")
+        response = self.client.post(
+            "/tasks/ready/",
+            {"worker_id": self.worker_id, "lease_seconds": 300},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], str(task.id))
 
     def test_claim_respects_priority_ordering(self):
         """Higher priority tasks should be claimed first."""
@@ -214,3 +247,87 @@ class TestTaskDetailView(TestCase):
         fake_id = uuid.uuid4()
         response = self.client.get(f"/tasks/{fake_id}/")
         self.assertEqual(response.status_code, 404)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestTaskEnqueueView(TestCase):
+    """Tests for POST /tasks/ - enqueue a new task."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_enqueue_task(self):
+        """Should create a new task and return 201."""
+        response = self.client.post(
+            "/tasks/",
+            {
+                "task_path": "django_tasks_db_api.tests.test_tasks.sample_task",
+                "args_kwargs": {"args": ["world"], "kwargs": {}},
+                "queue_name": "default",
+                "backend_name": "default",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["status"], TaskResultStatus.READY)
+        self.assertEqual(data["task_path"], "django_tasks_db_api.tests.test_tasks.sample_task")
+        self.assertEqual(data["args_kwargs"], {"args": ["world"], "kwargs": {}})
+        self.assertEqual(data["queue_name"], "default")
+
+    def test_enqueue_task_minimal(self):
+        """Should create a task with only task_path provided."""
+        response = self.client.post(
+            "/tasks/",
+            {"task_path": "django_tasks_db_api.tests.test_tasks.sample_task"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["queue_name"], "default")
+        self.assertEqual(data["backend_name"], "default")
+
+    def test_enqueue_task_custom_queue(self):
+        """Should allow enqueuing to a specific queue."""
+        response = self.client.post(
+            "/tasks/",
+            {
+                "task_path": "django_tasks_db_api.tests.test_tasks.sample_task",
+                "queue_name": "high-priority",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["queue_name"], "high-priority")
+
+    def test_enqueue_task_missing_task_path(self):
+        """Should return 400 when task_path is missing."""
+        response = self.client.post(
+            "/tasks/",
+            {"queue_name": "default"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_enqueue_then_claim(self):
+        """Should be able to enqueue a task and then claim it."""
+        # Enqueue
+        enqueue_response = self.client.post(
+            "/tasks/",
+            {
+                "task_path": "django_tasks_db_api.tests.test_tasks.sample_task",
+                "args_kwargs": {"args": ["test"], "kwargs": {}},
+            },
+            format="json",
+        )
+        self.assertEqual(enqueue_response.status_code, 201)
+        task_id = enqueue_response.json()["id"]
+
+        # Claim
+        claim_response = self.client.post(
+            "/tasks/ready/",
+            {"worker_id": "test-worker", "lease_seconds": 300},
+            format="json",
+        )
+        self.assertEqual(claim_response.status_code, 200)
+        self.assertEqual(claim_response.json()["id"], task_id)

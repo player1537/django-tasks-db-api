@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import logging
 import signal
 import sys
 import time
 import traceback as tb_module
+from datetime import datetime
 from types import FrameType
 
 import requests
@@ -26,19 +29,51 @@ class APIWorkerClient:
         return dict(self.headers)
 
     def claim_task(self, *, queue_name: str | None = None, lease_seconds: int = 300) -> dict | None:
+        url = f"{self.base_url}/tasks/ready/"
+        params = {}
         if queue_name:
-            url = f"{self.base_url}/queue/{queue_name}/tasks/ready/"
-        else:
-            url = f"{self.base_url}/tasks/ready/"
+            params["queue_name"] = queue_name
 
         response = requests.post(
             url,
             json={"worker_id": self.worker_id, "lease_seconds": lease_seconds},
+            params=params,
             headers=self.get_headers(),
             timeout=30,
         )
         if response.status_code == 204:
             return None
+        response.raise_for_status()
+        return response.json()
+
+    def enqueue_task(
+        self,
+        *,
+        task_path: str,
+        args_kwargs: dict | None = None,
+        priority: int = 0,
+        queue_name: str = "default",
+        backend_name: str = "default",
+        run_after: "datetime | None" = None,
+    ) -> dict:
+        from datetime import datetime
+
+        payload: dict = {
+            "task_path": task_path,
+            "args_kwargs": args_kwargs or {"args": [], "kwargs": {}},
+            "priority": priority,
+            "queue_name": queue_name,
+            "backend_name": backend_name,
+        }
+        if run_after is not None:
+            payload["run_after"] = run_after.isoformat()
+
+        response = requests.post(
+            f"{self.base_url}/tasks/",
+            json=payload,
+            headers=self.get_headers(),
+            timeout=30,
+        )
         response.raise_for_status()
         return response.json()
 
