@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import signal
 import sys
 import time
@@ -12,6 +13,27 @@ import requests
 from django.utils.module_loading import import_string
 
 logger = logging.getLogger("django_tasks_db_api")
+
+
+def calculate_backoff_delay(
+    attempt: int, initial_delay: float = 1.0, max_delay: float = 30.0
+) -> float:
+    """Calculate exponential backoff delay with jitter.
+
+    Args:
+        attempt: The attempt number (0-indexed)
+        initial_delay: Initial delay in seconds (default 1.0)
+        max_delay: Maximum delay in seconds (default 30.0)
+
+    Returns:
+        Delay in seconds with random jitter applied
+    """
+    # Exponential backoff: 1, 2, 4, 8, 16, 32... seconds
+    delay = min(max_delay, initial_delay * (2 ** attempt))
+    # Add jitter: randomize between 50-100% of calculated delay
+    # Cap result to max_delay to ensure we don't exceed the maximum
+    jittered_delay = min(max_delay, delay * (0.5 + random.random()))
+    return jittered_delay
 
 
 class APIWorkerClient:
@@ -144,10 +166,7 @@ class APIWorker:
         logger.info("Starting API worker")
 
         while self.running:
-            task_data = self.client.claim_task(
-                queue_name=self.queue_name,
-                lease_seconds=self.lease_seconds,
-            )
+            task_data = self._claim_task_with_backoff()
 
             if task_data is None:
                 if self.batch:
@@ -163,6 +182,32 @@ class APIWorker:
                 logger.info("Reached max tasks (%d) - exiting.", self._run_tasks)
                 return
 
+    def _claim_task_with_backoff(self) -> dict | None:
+        """Claim a task with exponential backoff on connection failures.
+
+        Returns:
+            Task data dict if a task is available, None if no tasks, or keeps retrying on error.
+        """
+        attempt = 0
+        while True:
+            try:
+                return self.client.claim_task(
+                    queue_name=self.queue_name,
+                    lease_seconds=self.lease_seconds,
+                )
+            except requests.RequestException as exc:
+                delay = calculate_backoff_delay(attempt)
+                logger.warning(
+                    "Failed to claim task (attempt %d), retrying in %.1f seconds: %s",
+                    attempt + 1,
+                    delay,
+                    exc,
+                )
+                if not self.running:
+                    raise
+                time.sleep(delay)
+                attempt += 1
+
     def run_task(self, task_data: dict) -> None:
         task_id = task_data["id"]
         task_path = task_data["task_path"]
@@ -176,13 +221,13 @@ class APIWorker:
                 *args_kwargs.get("args", []),
                 **args_kwargs.get("kwargs", {}),
             )
-            self.client.submit_result(
+            self._submit_result_with_backoff(
                 task_id=task_id,
                 status="SUCCESSFUL",
                 return_value=result,
             )
         except Exception as exc:
-            self.client.submit_result(
+            self._submit_result_with_backoff(
                 task_id=task_id,
                 status="FAILED",
                 exception_class_path=f"{type(exc).__module__}.{type(exc).__qualname__}",
@@ -190,3 +235,38 @@ class APIWorker:
             )
         finally:
             self._run_tasks += 1
+
+    def _submit_result_with_backoff(
+        self,
+        *,
+        task_id: str,
+        status: str,
+        return_value=None,
+        exception_class_path: str = "",
+        traceback: str = "",
+    ) -> None:
+        """Submit task result with exponential backoff on connection failures."""
+        attempt = 0
+        while True:
+            try:
+                self.client.submit_result(
+                    task_id=task_id,
+                    status=status,
+                    return_value=return_value,
+                    exception_class_path=exception_class_path,
+                    traceback=traceback,
+                )
+                return
+            except requests.RequestException as exc:
+                delay = calculate_backoff_delay(attempt)
+                logger.warning(
+                    "Failed to submit result for task %s (attempt %d), retrying in %.1f seconds: %s",
+                    task_id,
+                    attempt + 1,
+                    delay,
+                    exc,
+                )
+                if not self.running:
+                    raise
+                time.sleep(delay)
+                attempt += 1
