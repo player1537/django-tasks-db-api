@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 from django.db import transaction
 from django.utils import timezone
@@ -19,6 +20,8 @@ from .serializers import (
     TaskEnqueueSerializer,
     TaskResultSubmitSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TaskClaimView(APIView):
@@ -76,10 +79,13 @@ class TaskClaimView(APIView):
             ).enqueue(str(task_result.id))
 
         if task_result is None:
+            logger.debug("No tasks available to claim")
             return Response(status=status.HTTP_204_NO_CONTENT)
 
+        response_data = DBTaskResultSerializer(task_result).data
+        logger.debug("Task claimed: %s", response_data)
         return Response(
-            DBTaskResultSerializer(task_result).data,
+            response_data,
             status=status.HTTP_200_OK,
         )
 
@@ -97,12 +103,14 @@ class TaskResultView(APIView):
             try:
                 task_result = DBTaskResult.objects.select_for_update().get(pk=pk)
             except DBTaskResult.DoesNotExist:
+                logger.debug("Task not found: %s", pk)
                 return Response(
                     {"detail": "Task not found."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
             if task_result.status != TaskResultStatus.RUNNING:
+                logger.debug("Task %s is not in RUNNING state, current status: %s", pk, task_result.status)
                 return Response(
                     {"detail": "Task is not in RUNNING state."},
                     status=status.HTTP_409_CONFLICT,
@@ -133,8 +141,10 @@ class TaskResultView(APIView):
             # Clean up the lease now that the task is finished
             TaskLease.objects.filter(task_result_id=pk).delete()
 
+        response_data = DBTaskResultSerializer(task_result).data
+        logger.debug("Task result submitted: %s, status: %s", pk, submitted_status)
         return Response(
-            DBTaskResultSerializer(task_result).data,
+            response_data,
             status=status.HTTP_200_OK,
         )
 
@@ -146,13 +156,16 @@ class TaskDetailView(APIView):
         try:
             task_result = DBTaskResult.objects.get(pk=pk)
         except DBTaskResult.DoesNotExist:
+            logger.debug("Task not found: %s", pk)
             return Response(
                 {"detail": "Task not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        response_data = DBTaskResultSerializer(task_result).data
+        logger.debug("Task retrieved: %s", response_data)
         return Response(
-            DBTaskResultSerializer(task_result).data,
+            response_data,
             status=status.HTTP_200_OK,
         )
 
@@ -173,7 +186,9 @@ class TaskEnqueueView(APIView):
             run_after=serializer.validated_data.get("run_after"),
         )
 
+        response_data = DBTaskResultSerializer(task_result).data
+        logger.debug("Task enqueued: %s", response_data)
         return Response(
-            DBTaskResultSerializer(task_result).data,
+            response_data,
             status=status.HTTP_201_CREATED,
         )
