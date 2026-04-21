@@ -227,6 +227,7 @@ class APIWorker:
                 return_value=result,
             )
         except Exception as exc:
+            logger.exception("Task %s failed with exception", task_id)
             self._submit_result_with_backoff(
                 task_id=task_id,
                 status="FAILED",
