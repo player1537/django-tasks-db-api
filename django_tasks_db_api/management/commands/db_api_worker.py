@@ -1,7 +1,9 @@
 import logging
+import os
 from argparse import ArgumentParser
 
 from django.core.management.base import BaseCommand
+from django.utils import autoreload
 from django_tasks.utils import get_random_id
 
 from django_tasks_db_api.worker import APIWorker, APIWorkerClient
@@ -60,6 +62,12 @@ class Command(BaseCommand):
             default=None,
             help="Queue name to claim tasks from (optional, claims from any queue if not specified)",
         )
+        parser.add_argument(
+            "--noreload",
+            action="store_false",
+            dest="use_reloader",
+            help="Disable the auto-reloader.",
+        )
 
     def configure_logging(self, verbosity: int) -> None:
         if verbosity == 0:
@@ -72,7 +80,17 @@ class Command(BaseCommand):
         if not logger.hasHandlers():
             logger.addHandler(logging.StreamHandler(self.stdout))
 
-    def handle(self, *, verbosity: int, **options) -> None:
+    def handle(self, *, verbosity: int, use_reloader: bool = True, **options) -> None:
+        if use_reloader:
+            autoreload.run_with_reloader(
+                self.inner_run,
+                verbosity=verbosity,
+                **options,
+            )
+        else:
+            self.inner_run(verbosity=verbosity, **options)
+
+    def inner_run(self, *, verbosity: int, **options) -> None:
         self.configure_logging(verbosity)
 
         headers = {}
@@ -94,5 +112,9 @@ class Command(BaseCommand):
             queue_name=options["queue_name"],
         )
 
-        worker.configure_signals()
+        # Only configure signal handlers in the main process, not in autoreload subprocesses.
+        # In the reloader subprocess (RUN_MAIN='true'), skip signal setup; let the autoreloader
+        # handle process management and just run the worker.
+        if not os.environ.get("RUN_MAIN"):
+            worker.configure_signals()
         worker.run()
