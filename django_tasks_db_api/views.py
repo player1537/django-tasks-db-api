@@ -2,7 +2,7 @@ import datetime
 import logging
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from django_tasks.base import TaskResultStatus
@@ -40,11 +40,12 @@ class TaskClaimView(APIView):
         # Get ready tasks
         queryset = DBTaskResult.objects.ready()
 
-        # Exclude tasks with expired leases
-        # Keep tasks that either have no lease OR have a lease that hasn't expired yet
-        queryset = queryset.exclude(
-            Q(lease__expires_at__lt=timezone.now())
+        # Exclude tasks with expired leases using a subquery to avoid outer join
+        expired_lease_subquery = TaskLease.objects.filter(
+            task_result_id=OuterRef('pk'),
+            expires_at__lt=timezone.now()
         )
+        queryset = queryset.exclude(Exists(expired_lease_subquery))
 
         return queryset
 
